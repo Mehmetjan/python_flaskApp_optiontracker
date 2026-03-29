@@ -19,10 +19,10 @@ jobs:
         ports:
           - 3306:3306
         options: >-
-          --health-cmd="mysqladmin ping"
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -u root -ptestpassword"
           --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
+          --health-timeout=10s
+          --health-retries=10
 
     env:
       DB_HOST: 127.0.0.1
@@ -46,10 +46,33 @@ jobs:
           pip install -r requirements.txt
           pip install pytest requests
 
+      - name: Wait for MySQL to be ready
+        run: |
+          for i in {1..30}; do
+            mysqladmin ping -h 127.0.0.1 -u root -ptestpassword --silent && break
+            echo "Waiting for MySQL... attempt $i"
+            sleep 2
+          done
+
       - name: Start Flask app
         run: |
-          nohup python run.py &
-          sleep 5
+          nohup python run.py > flask.log 2>&1 &
+          echo "Waiting for Flask to start..."
+          for i in {1..15}; do
+            curl -s http://127.0.0.1:5000/health && break
+            echo "Attempt $i - Flask not ready yet"
+            sleep 2
+          done
+        env:
+          DB_HOST: ${{ env.DB_HOST }}
+          DB_PORT: ${{ env.DB_PORT }}
+          DB_NAME: ${{ env.DB_NAME }}
+          DB_USER: ${{ env.DB_USER }}
+          DB_PASSWORD: ${{ env.DB_PASSWORD }}
+
+      - name: Show Flask logs
+        if: always()
+        run: cat flask.log
 
       - name: Run Pytest test suite
         run: |
